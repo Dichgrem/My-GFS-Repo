@@ -1,0 +1,185 @@
+name: Build & Publish Arch Repo
+on:
+  schedule:
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+    inputs:
+      force_rebuild:
+        description: 'force_rebuild'
+        type: boolean
+        default: false
+permissions:
+  contents: write
+jobs:
+  check-version:
+    name: Check upstream version
+    runs-on: ubuntu-latest
+    outputs:
+      upstream_ver: ${{ steps.upstream.outputs.version }}
+      need_build: ${{ steps.compare.outputs.need_build }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Get upstream latest version
+        id: upstream
+        run: |
+          VERSION=$(curl -fsSL \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/GUI-for-Cores/GUI.for.SingBox/releases/latest" \
+            | jq -r '.tag_name' | sed 's/^v//')
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Upstream: $VERSION"
+      - name: Compare with current built version
+        id: compare
+        run: |
+          CURRENT=$(cat version.txt 2>/dev/null || echo "none")
+          UPSTREAM="${{ steps.upstream.outputs.version }}"
+          echo "Current: $CURRENT  Upstream: $UPSTREAM"
+          if [ "${{ inputs.force_rebuild }}" = "true" ] || [ "$UPSTREAM" != "$CURRENT" ]; then
+            echo "need_build=true" >> $GITHUB_OUTPUT
+          else
+            echo "need_build=false" >> $GITHUB_OUTPUT
+            echo "Already up to date, skipping."
+          fi
+  build:
+    name: Build package
+    needs: check-version
+    if: needs.check-version.outputs.need_build == 'true'
+    runs-on: ubuntu-latest
+    container:
+      image: archlinux:latest
+    env:
+      NEW_VER: ${{ needs.check-version.outputs.upstream_ver }}
+    steps:
+      - name: Install dependencies (as root)
+        run: |
+          pacman -Syu --noconfirm
+          pacman -S --noconfirm \
+            git base-devel pacman-contrib \
+            curl jq unzip \
+            webkit2gtk-4.1 glib2 glibc gtk3
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Update pkgver in PKGBUILD
+        run: |
+          sed -i "s/^pkgver=.*/pkgver=${NEW_VER}/" PKGBUILD
+          sed -i "s/^pkgrel=.*/pkgrel=1/"          PKGBUILD
+      - name: Create non-root build user
+        run: |
+          useradd -m builder
+          chown -R builder:builder .
+      - name: Update checksums
+        run: su builder -c "cd $PWD && updpkgsums"
+      - name: Generate .SRCINFO
+        run: su builder -c "cd $PWD && makepkg --printsrcinfo > .SRCINFO"
+      - name: Build package
+        run: su builder -c "cd $PWD && makepkg --nodeps --noconfirm --noprogressbar"
+      - name: Prepare repo directory
+        run: |
+          mkdir -p repo/x86_64
+          cp *.pkg.tar.zst repo/x86_64/
+      - name: Build pacman database
+        run: |
+          repo-add --new --remove \
+            repo/x86_64/gui-for-singbox.db.tar.gz \
+            repo/x86_64/*.pkg.tar.zst
+          cd repo/x86_64
+          ln -sf gui-for-singbox.db.tar.gz    gui-for-singbox.db
+          ln -sf gui-for-singbox.files.tar.gz gui-for-singbox.files
+      - name: Record built version
+        run: echo "${NEW_VER}" > version.txt
+      - name: Commit to main
+        run: |
+          git config --global user.name  "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git config --global --add safe.directory "$PWD"
+          git add PKGBUILD .SRCINFO version.txt
+          git commit -m "chore: update to v${NEW_VER}" || true
+          git push || true
+      - name: Upload repo as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: arch-repo
+          path: repo/
+          retention-days: 1
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: [check-version, build]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download built repo artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: arch-repo
+          path: incoming/
+      - name: Checkout or create gh-pages
+        run: |
+          git clone --depth 1 --branch gh-pages \
+            https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }} \
+            gh-pages-dir \
+          || (git clone --depth 1 \
+            https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }} \
+            gh-pages-dir \
+            && cd gh-pages-dir \
+            && git checkout --orphan gh-pages \
+            && git rm -rf . || true)
+          rm -f gh-pages-dir/README.md gh-pages-dir/LICENSE
+      - name: Replace old package, keep only latest
+        run: |
+          cd gh-pages-dir
+          mkdir -p x86_64
+          rm -f x86_64/gui-for-singbox-*.pkg.tar.zst
+          rm -f x86_64/gui-for-singbox-*.pkg.tar.zst.sig
+          cp ../incoming/x86_64/*.pkg.tar.zst               x86_64/
+          cp ../incoming/x86_64/gui-for-singbox.db.tar.gz   x86_64/
+          cp ../incoming/x86_64/gui-for-singbox.files.tar.gz x86_64/
+          cd x86_64
+          ln -sf gui-for-singbox.db.tar.gz    gui-for-singbox.db
+          ln -sf gui-for-singbox.files.tar.gz gui-for-singbox.files
+      - name: Generate index.html
+        env:
+          NEW_VER: ${{ needs.check-version.outputs.upstream_ver }}
+          REPO_OWNER: ${{ github.repository_owner }}
+          REPO_NAME: ${{ github.event.repository.name }}
+        run: |
+          cd gh-pages-dir
+          cat > index.html << 'HTMLEOF'
+          <!DOCTYPE html>
+          <html lang="zh">
+          <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1">
+            <title>gui-for-singbox Arch Repo</title>
+            <style>
+              body { font-family: monospace; max-width: 720px; margin: 48px auto; padding: 0 24px; line-height: 1.6; }
+              h1   { border-bottom: 2px solid #333; padding-bottom: 8px; }
+              pre  { background: #f5f5f5; padding: 16px; border-radius: 6px; overflow-x: auto; }
+              code { background: #f5f5f5; padding: 2px 5px; border-radius: 3px; }
+              footer { color: #888; font-size: 0.85em; margin-top: 48px; }
+            </style>
+          </head>
+          <body>
+            <h1>Gui-for-singbox Arch Repo</h1>
+            <p>自动跟踪上游 Release 构建的非官方 pacman 仓库。</p>
+            <h2>使用方法</h2>
+            <p>在 <code>/etc/pacman.conf</code> 末尾添加：</p>
+            <pre>[gui-for-singbox]
+          SigLevel = Optional TrustAll
+          Server = https://REPO_OWNER.github.io/REPO_NAME/x86_64</pre>
+            <p>然后安装：</p>
+            <pre>sudo pacman -Sy
+          sudo pacman -S gui-for-singbox</pre>
+          </body>
+          </html>
+          HTMLEOF
+          sed -i "s/REPO_OWNER/${REPO_OWNER}/g" index.html
+          sed -i "s/REPO_NAME/${REPO_NAME}/g"   index.html
+      - name: Commit and push to gh-pages
+        run: |
+          cd gh-pages-dir
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "deploy: v${{ needs.check-version.outputs.upstream_ver }}" || true
+          git push origin gh-pages
