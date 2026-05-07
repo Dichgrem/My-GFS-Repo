@@ -2,7 +2,7 @@
 
 pkgname='gui-for-singbox'
 _pkgname='GUI.for.SingBox'
-pkgver=1.23.2
+pkgver=1.24.0
 pkgrel=1
 pkgdesc='GUI for SingBox'
 arch=('x86_64')
@@ -22,7 +22,7 @@ source=(
   "${pkgname}.desktop"
   "https://raw.githubusercontent.com/GUI-for-Cores/${_pkgname}/main/build/appicon.png"
 )
-sha256sums=('f17b68c994758c7c4b8646f8610f358e4d6e3f041fe6ce1c64000271d553925e'
+sha256sums=('bddf0b0ee4e791390a485017d408b28b722f5832bf9475567b4045dd73560e63'
             '576a9561c73fdc39f31670ac5cb6fefc61822a348f116f0d64f9e2e402882729'
             '08257d0d21c76a56e48e38105460927293a452ddc6b0b62db401bf5b5b9b7adf')
 
