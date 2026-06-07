@@ -1,6 +1,6 @@
 pkgbase = gui-for-singbox
 	pkgdesc = GUI for SingBox
-	pkgver = 1.24.1
+	pkgver = 1.25.1
 	pkgrel = 1
 	url = https://github.com/GUI-for-Cores/GUI.for.SingBox
 	install = gui-for-singbox.install
@@ -11,10 +11,10 @@ pkgbase = gui-for-singbox
 	depends = jq
 	depends = curl
 	options = !debug
-	source = gui-for-singbox-1.24.1.zip::https://github.com/GUI-for-Cores/GUI.for.SingBox/releases/download/v1.24.1/GUI.for.SingBox-linux-amd64.zip
+	source = gui-for-singbox-1.25.1.zip::https://github.com/GUI-for-Cores/GUI.for.SingBox/releases/download/v1.25.1/GUI.for.SingBox-linux-amd64.zip
 	source = gui-for-singbox.desktop
 	source = https://raw.githubusercontent.com/GUI-for-Cores/GUI.for.SingBox/main/build/appicon.png
-	sha256sums = b21c6267dde019db0685b2f0a960a5bfffbefdefe5d1ef81b87b12339277093c
+	sha256sums = b4a84df6c49ad705e06f92117bb7706daffe6653e48424f5b5a83fc1fa9173b7
 	sha256sums = 576a9561c73fdc39f31670ac5cb6fefc61822a348f116f0d64f9e2e402882729
 	sha256sums = 08257d0d21c76a56e48e38105460927293a452ddc6b0b62db401bf5b5b9b7adf
 
