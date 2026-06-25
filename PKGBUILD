@@ -6,7 +6,7 @@ pkgver=1.25.3
 pkgrel=1
 pkgdesc='GUI for SingBox'
 arch=('x86_64')
-license=('GPL3')
+license=('GPL-3.0-only')
 options=('!debug')
 depends=(
   'glibc'
